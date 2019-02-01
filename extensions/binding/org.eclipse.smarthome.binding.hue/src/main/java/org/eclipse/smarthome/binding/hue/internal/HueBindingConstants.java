@@ -49,6 +49,12 @@ public class HueBindingConstants {
     public static final ThingTypeUID THING_TYPE_TEMPERATURE_SENSOR = new ThingTypeUID(BINDING_ID, "0302");
     public static final ThingTypeUID THING_TYPE_LIGHT_LEVEL_SENSOR = new ThingTypeUID(BINDING_ID, "0106");
 
+    public static final ThingTypeUID THING_TYPE_ON_OFF_GROUP = new ThingTypeUID(BINDING_ID, "0000g");    
+    public static final ThingTypeUID THING_TYPE_COLOR_GROUP = new ThingTypeUID(BINDING_ID, "0200g");    
+    public static final ThingTypeUID THING_TYPE_COLOR_TEMPERATURE_GROUP = new ThingTypeUID(BINDING_ID, "0220g");    
+    public static final ThingTypeUID THING_TYPE_EXTENDED_COLOR_GROUP = new ThingTypeUID(BINDING_ID, "0210g");    
+    public static final ThingTypeUID THING_TYPE_DIMMABLE_GROUP = new ThingTypeUID(BINDING_ID, "0100g");    
+
     // List all channels
     public static final String CHANNEL_COLORTEMPERATURE = "color_temperature";
     public static final String CHANNEL_COLOR = "color";
@@ -79,6 +85,9 @@ public class HueBindingConstants {
     // Light config properties
     public static final String LIGHT_ID = "lightId";
     public static final String SENSOR_ID = "sensorId";
+    public static final String GROUP_ID = "groupId";
+    public static final String GROUP_TYPE = "groupType";
+    public static final String GROUP_ROOM_CLASS = "groupRoomClass";
     public static final String PRODUCT_NAME = "productName";
     public static final String UNIQUE_ID = "uniqueId";
 

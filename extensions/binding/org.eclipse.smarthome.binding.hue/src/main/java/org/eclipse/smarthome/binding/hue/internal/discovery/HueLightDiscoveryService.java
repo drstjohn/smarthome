@@ -29,11 +29,15 @@ import org.eclipse.jdt.annotation.Nullable;
 import org.eclipse.smarthome.binding.hue.internal.FullHueObject;
 import org.eclipse.smarthome.binding.hue.internal.FullLight;
 import org.eclipse.smarthome.binding.hue.internal.FullSensor;
+import org.eclipse.smarthome.binding.hue.internal.FullGroup;
 import org.eclipse.smarthome.binding.hue.internal.HueBridge;
+import org.eclipse.smarthome.binding.hue.internal.State;
 import org.eclipse.smarthome.binding.hue.internal.handler.HueBridgeHandler;
 import org.eclipse.smarthome.binding.hue.internal.handler.HueLightHandler;
+import org.eclipse.smarthome.binding.hue.internal.handler.HueGroupHandler;
 import org.eclipse.smarthome.binding.hue.internal.handler.LightStatusListener;
 import org.eclipse.smarthome.binding.hue.internal.handler.SensorStatusListener;
+import org.eclipse.smarthome.binding.hue.internal.handler.GroupStatusListener;
 import org.eclipse.smarthome.binding.hue.internal.handler.sensors.DimmerSwitchHandler;
 import org.eclipse.smarthome.binding.hue.internal.handler.sensors.LightLevelHandler;
 import org.eclipse.smarthome.binding.hue.internal.handler.sensors.PresenceHandler;
@@ -62,11 +66,12 @@ import org.slf4j.LoggerFactory;
  */
 @NonNullByDefault
 public class HueLightDiscoveryService extends AbstractDiscoveryService
-        implements LightStatusListener, SensorStatusListener {
+        implements LightStatusListener, SensorStatusListener, GroupStatusListener {
     public static final Set<ThingTypeUID> SUPPORTED_THING_TYPES = Collections.unmodifiableSet(Stream
-            .of(HueLightHandler.SUPPORTED_THING_TYPES.stream(), DimmerSwitchHandler.SUPPORTED_THING_TYPES.stream(),
-                    TapSwitchHandler.SUPPORTED_THING_TYPES.stream(), PresenceHandler.SUPPORTED_THING_TYPES.stream(),
-                    TemperatureHandler.SUPPORTED_THING_TYPES.stream(), LightLevelHandler.SUPPORTED_THING_TYPES.stream())
+            .of(HueLightHandler.SUPPORTED_THING_TYPES.stream(), HueGroupHandler.SUPPORTED_THING_TYPES.stream(), 
+                    DimmerSwitchHandler.SUPPORTED_THING_TYPES.stream(), TapSwitchHandler.SUPPORTED_THING_TYPES.stream(), 
+		    PresenceHandler.SUPPORTED_THING_TYPES.stream(), TemperatureHandler.SUPPORTED_THING_TYPES.stream(), 
+		    LightLevelHandler.SUPPORTED_THING_TYPES.stream())
             .flatMap(i -> i).collect(Collectors.toSet()));
 
     private final Logger logger = LoggerFactory.getLogger(HueLightDiscoveryService.class);
@@ -100,6 +105,7 @@ public class HueLightDiscoveryService extends AbstractDiscoveryService
     public void activate() {
         hueBridgeHandler.registerLightStatusListener(this);
         hueBridgeHandler.registerSensorStatusListener(this);
+        hueBridgeHandler.registerGroupStatusListener(this);
     }
 
     @Override
@@ -107,7 +113,7 @@ public class HueLightDiscoveryService extends AbstractDiscoveryService
         removeOlderResults(new Date().getTime(), hueBridgeHandler.getThing().getUID());
         hueBridgeHandler.unregisterLightStatusListener(this);
         hueBridgeHandler.unregisterSensorStatusListener(this);
-
+        hueBridgeHandler.unregisterGroupStatusListener(this);
     }
 
     @Override
@@ -124,6 +130,10 @@ public class HueLightDiscoveryService extends AbstractDiscoveryService
         List<FullSensor> sensors = hueBridgeHandler.getFullSensors();
         for (FullSensor s : sensors) {
             onSensorAddedInternal(s);
+        }
+        List<FullGroup> groups = hueBridgeHandler.getFullGroups();
+        for (FullGroup g : groups) {
+            onGroupAddedInternal(g);
         }
         // search for unpaired lights
         hueBridgeHandler.startSearch();
@@ -183,6 +193,50 @@ public class HueLightDiscoveryService extends AbstractDiscoveryService
         // nothing to do
     }
 
+    @Override
+    public void onGroupAdded(@Nullable HueBridge bridge, FullGroup group) {
+        onGroupAddedInternal(group);
+    }
+
+    private void onGroupAddedInternal(FullGroup group) {
+        ThingTypeUID thingTypeUID = getGroupThingTypeUID(group);
+        ThingUID thingUID = getGroupThingUID(group);
+
+        if (thingUID != null && thingTypeUID != null) {
+            ThingUID bridgeUID = hueBridgeHandler.getThing().getUID();
+            Map<String, Object> properties = new HashMap<>();
+            properties.put(GROUP_ID, group.getId());
+            properties.put(GROUP_TYPE, group.getType());
+            String roomClass = group.getRoomClass();
+            if (roomClass != null && roomClass != "") {
+                properties.put(GROUP_ROOM_CLASS, roomClass);
+            }
+
+            DiscoveryResult discoveryResult = DiscoveryResultBuilder.create(thingUID).withThingType(thingTypeUID)
+                    .withProperties(properties).withBridge(bridgeUID).withRepresentationProperty(GROUP_ID)
+                    .withLabel(group.getName()).build();
+
+            thingDiscovered(discoveryResult);
+        } else {
+            logger.debug("discovered unsupported group with id {}", 
+                    group.getId());
+        }
+    }
+
+    @Override
+    public void onGroupRemoved(@Nullable HueBridge bridge, FullGroup group) {
+        ThingUID thingUID = getGroupThingUID(group);
+
+        if (thingUID != null) {
+            thingRemoved(thingUID);
+        }
+    }
+
+    @Override
+    public void onGroupStateChanged(@Nullable HueBridge bridge, FullGroup group) {
+        // nothing to do
+    }
+
     private @Nullable ThingUID getThingUID(FullHueObject hueObject) {
         ThingUID bridgeUID = hueBridgeHandler.getThing().getUID();
         ThingTypeUID thingTypeUID = getThingTypeUID(hueObject);
@@ -199,6 +253,34 @@ public class HueLightDiscoveryService extends AbstractDiscoveryService
                 .get(hueObject.getType().replaceAll(NORMALIZE_ID_REGEX, "_").toLowerCase());
 
         return thingTypeId != null ? new ThingTypeUID(BINDING_ID, thingTypeId) : null;
+    }
+
+    private @Nullable ThingUID getGroupThingUID(FullGroup group) {
+        ThingUID bridgeUID = hueBridgeHandler.getThing().getUID();
+        ThingTypeUID thingTypeUID = getGroupThingTypeUID(group);
+        return new ThingUID(thingTypeUID, bridgeUID, group.getId());
+    }
+
+    private @Nullable ThingTypeUID getGroupThingTypeUID(FullGroup group) {
+        ThingTypeUID type = THING_TYPE_ON_OFF_GROUP;
+        State action = group.getAction();
+        if (action != null) {
+            boolean hasHue = action.getHue() >= 0;
+            boolean hasCt = action.getColorTemperature() >= 0;
+            boolean hasBri = action.getBrightness() >= 0;
+            if (hasHue) {
+                if (hasCt) {
+                    type = THING_TYPE_EXTENDED_COLOR_GROUP;
+                } else {
+                    type = THING_TYPE_COLOR_GROUP;
+                }
+            } else if (hasCt) {
+                type = THING_TYPE_COLOR_TEMPERATURE_GROUP;
+            } else if (hasBri) {
+                type = THING_TYPE_DIMMABLE_GROUP;
+            }
+        }
+        return type;
     }
 
     @Override

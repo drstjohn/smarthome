@@ -78,6 +78,7 @@ public class LightStateConverter {
         int brightness = (int) Math.floor(hsbType.getBrightness().doubleValue() * BRIGHTNESS_FACTOR);
         if (brightness > 0) {
             stateUpdate.setBrightness(brightness);
+            stateUpdate.turnOn();
         }
         return stateUpdate;
     }

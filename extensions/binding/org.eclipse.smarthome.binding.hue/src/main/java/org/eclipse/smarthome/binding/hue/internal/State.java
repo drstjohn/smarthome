@@ -31,6 +31,11 @@ public class State {
     private boolean reachable;
 
     State() {
+        bri = -1;
+        hue = -1;
+        sat = -1;
+        ct = -1;
+        alert = "none";
     }
 
     /**
@@ -149,6 +154,9 @@ public class State {
      * @return last alert mode
      */
     public AlertMode getAlertMode() {
+        if (alert == null) {
+            return null;
+        } 
         return AlertMode.valueOf(alert.toUpperCase());
     }
 

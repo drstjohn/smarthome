@@ -17,6 +17,7 @@ import org.eclipse.jdt.annotation.Nullable;
 import org.eclipse.smarthome.binding.hue.internal.ConfigUpdate;
 import org.eclipse.smarthome.binding.hue.internal.FullLight;
 import org.eclipse.smarthome.binding.hue.internal.FullSensor;
+import org.eclipse.smarthome.binding.hue.internal.FullGroup;
 import org.eclipse.smarthome.binding.hue.internal.StateUpdate;
 
 /**
@@ -62,6 +63,22 @@ public interface HueClient {
     boolean unregisterSensorStatusListener(SensorStatusListener sensorStatusListener);
 
     /**
+     * Register a group status listener.
+     *
+     * @param groupStatusListener the group status listener
+     * @return {@code true} if the collection of listeners has changed as a result of this call
+     */
+    boolean registerGroupStatusListener(GroupStatusListener groupStatusListener);
+
+    /**
+     * Unregister a group status listener.
+     *
+     * @param groupStatusListener the group status listener
+     * @return {@code true} if the collection of listeners has changed as a result of this call
+     */
+    boolean unregisterGroupStatusListener(GroupStatusListener groupStatusListener);
+
+    /**
      * Get the light by its ID.
      *
      * @param lightId the light ID
@@ -80,12 +97,29 @@ public interface HueClient {
     FullSensor getSensorById(String sensorId);
 
     /**
+     * Get the group by its ID.
+     *
+     * @param groupId the group ID
+     * @return the full group representation of {@code null} if it could not be found
+     */
+    @Nullable
+    FullGroup getGroupById(String groupId);
+
+    /**
      * Updates the given light.
      *
      * @param light the light to be updated
      * @param stateUpdate the state update
      */
     void updateLightState(FullLight light, StateUpdate stateUpdate);
+
+    /**
+     * Updates the given group.
+     *
+     * @param group the group to be updated
+     * @param stateUpdate the state update
+     */
+    void updateGroupState(FullGroup group, StateUpdate stateUpdate);
 
     /**
      * Updates the given sensors config.

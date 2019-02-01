@@ -17,6 +17,8 @@ import java.util.Map;
 
 import com.google.gson.reflect.TypeToken;
 
+import com.google.gson.annotations.SerializedName;
+
 /**
  * Basic group information.
  *
@@ -27,12 +29,25 @@ public class Group {
     public static final Type GSON_TYPE = new TypeToken<Map<String, Group>>() {
     }.getType();
 
+    private String type;
+    @SerializedName("class")
+    private String roomClass;
     private String id;
     private String name;
 
     Group() {
+        this.type = "LightGroup";
+        this.roomClass = "";
         this.id = "0";
-        this.name = "Lightset 0";
+        this.name = "Group 0";
+    }
+
+    void setType(String type) {
+        this.type = type;
+    }
+
+    void setRoomClass(String roomClass) {
+        this.roomClass = roomClass;
     }
 
     void setName(String name) {
@@ -51,6 +66,25 @@ public class Group {
      */
     public boolean isModifiable() {
         return !id.equals("0");
+    }
+
+    /**
+     * Returns the type of group
+     *
+     * @return type
+     */
+    public String getType() {
+        return this.type;
+    }
+
+    /**
+     * Returns the room class. 
+     * Only relevant to groups of type "Room"
+     *
+     * @return roomClass 
+     */
+    public String getRoomClass() {
+        return this.roomClass;
     }
 
     /**

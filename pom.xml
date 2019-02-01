@@ -221,6 +221,9 @@
         <plugin>
           <artifactId>maven-compiler-plugin</artifactId>
           <version>3.8.0</version>
+	  <configuration>
+            <useIncrementalCompilation>false</useIncrementalCompilation>
+          </configuration>		
         </plugin>
         <plugin>
           <groupId>com.mycila</groupId>
@@ -440,6 +443,9 @@
       </plugin>
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
+	<configuration>
+          <useIncrementalCompilation>false</useIncrementalCompilation>
+        </configuration>		
       </plugin>
     </plugins>
   </build>

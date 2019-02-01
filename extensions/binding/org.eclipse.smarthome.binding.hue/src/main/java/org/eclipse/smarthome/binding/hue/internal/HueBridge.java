@@ -43,6 +43,10 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+
 /**
  * Representation of a connection with a Hue bridge.
  *
@@ -64,6 +68,8 @@ public class HueBridge {
 
     @Nullable
     private Config cachedConfig;
+
+    private final Logger logger = LoggerFactory.getLogger(HueBridge.class);
 
     /**
      * Connect with a bridge as a new user.
@@ -342,6 +348,24 @@ public class HueBridge {
     }
 
     /**
+     * Changes the state of a group.
+     *
+     * @param group group
+     * @param update changes to the state
+     * @throws UnauthorizedException thrown if the user no longer exists
+     * @throws EntityNotAvailableException thrown if the specified group no longer exists
+     * @throws DeviceOffException thrown if the specified group is turned off
+     * @throws IOException if the bridge cannot be reached
+     */
+    public CompletableFuture<Result> setGroupState(FullGroup group, StateUpdate update) {
+        requireAuthentication();
+
+        String body = update.toJson();
+        return http.putAsync(getRelativeURL("groups/" + enc(group.getId()) + "/action"), body, 0/*update.getMessageDelay()*/,
+                scheduler);
+    }
+
+    /**
      * Changes the config of a sensor.
      *
      * @param sensor sensor
@@ -375,20 +399,20 @@ public class HueBridge {
      * @return list of groups
      * @throws UnauthorizedException thrown if the user no longer exists
      */
-    public List<Group> getGroups() throws IOException, ApiException {
+    public List<FullGroup> getGroups() throws IOException, ApiException {
         requireAuthentication();
 
         Result result = http.get(getRelativeURL("groups"));
 
         handleErrors(result);
 
-        Map<String, Group> groupMap = safeFromJson(result.getBody(), Group.GSON_TYPE);
-        ArrayList<Group> groupList = new ArrayList<>();
+        Map<String, FullGroup> groupMap = safeFromJson(result.getBody(), FullGroup.GSON_TYPE);
+        ArrayList<FullGroup> groupList = new ArrayList<>();
 
-        groupList.add(new Group());
+        groupList.add(new FullGroup(new State()));
 
         for (String id : groupMap.keySet()) {
-            Group group = groupMap.get(id);
+            FullGroup group = groupMap.get(id);
             group.setId(id);
             groupList.add(group);
         }

@@ -58,7 +58,7 @@
       <plugin>
         <groupId>${tycho-groupid}</groupId>
         <artifactId>tycho-surefire-plugin</artifactId>
-        <configuration>
+	<configuration>
           <bundleStartLevel>
             <bundle>
               <id>org.eclipse.equinox.ds</id>

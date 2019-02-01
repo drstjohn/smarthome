@@ -39,6 +39,7 @@ import org.eclipse.smarthome.binding.hue.internal.ConfigUpdate;
 import org.eclipse.smarthome.binding.hue.internal.FullConfig;
 import org.eclipse.smarthome.binding.hue.internal.FullLight;
 import org.eclipse.smarthome.binding.hue.internal.FullSensor;
+import org.eclipse.smarthome.binding.hue.internal.FullGroup;
 import org.eclipse.smarthome.binding.hue.internal.HueBridge;
 import org.eclipse.smarthome.binding.hue.internal.HueConfigStatusMessage;
 import org.eclipse.smarthome.binding.hue.internal.State;
@@ -60,6 +61,8 @@ import org.eclipse.smarthome.core.thing.binding.ConfigStatusBridgeHandler;
 import org.eclipse.smarthome.core.types.Command;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.io.StringWriter;
+import java.io.PrintWriter;
 
 /**
  * {@link HueBridgeHandler} is the handler for a hue bridge and connects it to
@@ -113,7 +116,9 @@ public class HueBridgeHandler extends ConfigStatusBridgeHandler implements HueCl
                 } catch (Exception e) {
                     if (hueBridge != null) {
                         if (lastBridgeConnectionState) {
-                            logger.debug("Connection to Hue Bridge {} lost.", hueBridge.getIPAddress());
+                            StringWriter errorWriter = new StringWriter();
+                            e.printStackTrace(new PrintWriter(errorWriter));
+                            logger.debug("Connection to Hue Bridge {} lost (error {}).", hueBridge.getIPAddress(), errorWriter.toString());
                             lastBridgeConnectionState = false;
                             onConnectionLost();
                         }
@@ -163,6 +168,7 @@ public class HueBridgeHandler extends ConfigStatusBridgeHandler implements HueCl
 
     private final Map<String, FullLight> lastLightStates = new ConcurrentHashMap<>();
     private final Map<String, FullSensor> lastSensorStates = new ConcurrentHashMap<>();
+    private final Map<String, FullGroup> lastGroupStates = new ConcurrentHashMap<>();
 
     private boolean lastBridgeConnectionState = false;
 
@@ -170,6 +176,7 @@ public class HueBridgeHandler extends ConfigStatusBridgeHandler implements HueCl
 
     private final List<LightStatusListener> lightStatusListeners = new CopyOnWriteArrayList<>();
     private final List<SensorStatusListener> sensorStatusListeners = new CopyOnWriteArrayList<>();
+    private final List<GroupStatusListener> groupStatusListeners = new CopyOnWriteArrayList<>();
 
     private @Nullable ScheduledFuture<?> lightPollingJob;
     private @Nullable ScheduledFuture<?> sensorPollingJob;
@@ -219,12 +226,17 @@ public class HueBridgeHandler extends ConfigStatusBridgeHandler implements HueCl
         @Override
         protected void doConnectedRun() throws IOException, ApiException {
             Map<String, FullLight> lastLightStateCopy = new HashMap<>(lastLightStates);
+            Map<String, FullGroup> lastGroupStateCopy = new HashMap<>(lastGroupStates);
 
             List<FullLight> lights;
+            List<FullGroup> groups;
             if (ApiVersionUtils.supportsFullLights(hueBridge.getVersion())) {
                 lights = hueBridge.getFullLights();
+                groups = hueBridge.getGroups();
             } else {
-                lights = hueBridge.getFullConfig().getLights();
+                FullConfig config = hueBridge.getFullConfig();
+                lights = config.getLights();
+                groups = config.getGroups();
             }
 
             for (final FullLight fullLight : lights) {
@@ -251,6 +263,36 @@ public class HueBridgeHandler extends ConfigStatusBridgeHandler implements HueCl
                 for (LightStatusListener lightStatusListener : lightStatusListeners) {
                     try {
                         lightStatusListener.onLightRemoved(hueBridge, fullLightEntry.getValue());
+                    } catch (Exception e) {
+                        logger.error("An exception occurred while calling the BridgeHeartbeatListener", e);
+                    }
+                }
+            }
+
+            for (final FullGroup fullGroup : groups) {
+                final String groupId = fullGroup.getId();
+                if (lastGroupStateCopy.containsKey(groupId)) {
+                    final FullGroup lastFullGroup = lastGroupStateCopy.remove(groupId);
+                    final State lastFullGroupAction = lastFullGroup.getAction();
+                    lastGroupStates.put(groupId, fullGroup);
+                    if (!isEqual(lastFullGroupAction, fullGroup.getAction())) {
+                        logger.debug("Status update for Hue light group '{}' detected.", groupId);
+                        notifyGroupStatusListeners(fullGroup, STATE_CHANGED);
+                    }
+                } else {
+                    lastGroupStates.put(groupId, fullGroup);
+                    logger.debug("Hue light group '{}' added.", groupId);
+                    notifyGroupStatusListeners(fullGroup, STATE_ADDED);
+                }
+            }
+
+            // Check for removed groups
+            for (Entry<String, FullGroup> fullGroupEntry : lastGroupStateCopy.entrySet()) {
+                lastGroupStates.remove(fullGroupEntry.getKey());
+                logger.debug("Hue light group '{}' removed.", fullGroupEntry.getKey());
+                for (GroupStatusListener groupStatusListener : groupStatusListeners) {
+                    try {
+                        groupStatusListener.onGroupRemoved(hueBridge, fullGroupEntry.getValue());
                     } catch (Exception e) {
                         logger.error("An exception occurred while calling the BridgeHeartbeatListener", e);
                     }
@@ -283,6 +325,24 @@ public class HueBridgeHandler extends ConfigStatusBridgeHandler implements HueCl
             });
         } else {
             logger.warn("No bridge connected or selected. Cannot set light state.");
+        }
+    }
+
+    @Override
+    public void updateGroupState(FullGroup group, StateUpdate stateUpdate) {
+        if (hueBridge != null) {
+            hueBridge.setGroupState(group, stateUpdate).thenAccept(result -> {
+                try {
+                    hueBridge.handleErrors(result);
+                } catch (Exception e) {
+                    handleGroupStateUpdateException(group, stateUpdate, e);
+                }
+            }).exceptionally(e -> {
+                handleGroupStateUpdateException(group, stateUpdate, e);
+                return null;
+            });
+        } else {
+            logger.warn("No bridge connected or selected. Cannot set group state.");
         }
     }
 
@@ -321,6 +381,26 @@ public class HueBridgeHandler extends ConfigStatusBridgeHandler implements HueCl
             logger.warn("Error while accessing light: {}", e.getMessage(), e);
         } else if (e instanceof IllegalStateException) {
             logger.trace("Error while accessing light: {}", e.getMessage());
+        }
+    }
+
+    private void handleGroupStateUpdateException(FullGroup group, StateUpdate stateUpdate, Throwable e) {
+        if (e instanceof DeviceOffException) {
+            if (stateUpdate.getColorTemperature() != null && stateUpdate.getBrightness() == null) {
+                // If there is only a change of the color temperature, we do not want the light
+                // to be turned on (i.e. change its brightness).
+                return;
+            } else {
+                updateGroupState(group, LightStateConverter.toOnOffLightState(OnOffType.ON));
+                updateGroupState(group, stateUpdate);
+            }
+        } else if (e instanceof IOException) {
+            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR, e.getMessage());
+        } else if (e instanceof ApiException) {
+            // This should not happen - if it does, it is most likely some bug that should be reported.
+            logger.warn("Error while accessing group: {}", e.getMessage(), e);
+        } else if (e instanceof IllegalStateException) {
+            logger.trace("Error while accessing group: {}", e.getMessage());
         }
     }
 
@@ -605,6 +685,28 @@ public class HueBridgeHandler extends ConfigStatusBridgeHandler implements HueCl
     }
 
     @Override
+    public boolean registerGroupStatusListener(GroupStatusListener groupStatusListener) {
+        boolean result = groupStatusListeners.add(groupStatusListener);
+        if (result) {
+            onUpdate();
+            // inform the listener initially about all lights and their states
+            for (FullGroup group : lastGroupStates.values()) {
+                groupStatusListener.onGroupAdded(hueBridge, group);
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public boolean unregisterGroupStatusListener(GroupStatusListener groupStatusListener) {
+        boolean result = groupStatusListeners.remove(groupStatusListener);
+        if (result) {
+            onUpdate();
+        }
+        return result;
+    }
+
+    @Override
     public @Nullable FullLight getLightById(String lightId) {
         return lastLightStates.get(lightId);
     }
@@ -612,6 +714,11 @@ public class HueBridgeHandler extends ConfigStatusBridgeHandler implements HueCl
     @Override
     public @Nullable FullSensor getSensorById(String sensorId) {
         return lastSensorStates.get(sensorId);
+    }
+
+    @Override
+    public @Nullable FullGroup getGroupById(String groupId) {
+        return lastGroupStates.get(groupId);
     }
 
     public List<FullLight> getFullLights() {
@@ -624,6 +731,13 @@ public class HueBridgeHandler extends ConfigStatusBridgeHandler implements HueCl
     public List<FullSensor> getFullSensors() {
         List<FullSensor> ret = withReAuthentication("search for new sensors", () -> {
             return hueBridge.getSensors();
+        });
+        return ret != null ? ret : Collections.emptyList();
+    }
+
+    public List<FullGroup> getFullGroups() {
+        List<FullGroup> ret = withReAuthentication("search for new groups", () -> {
+            return hueBridge.getGroups();
         });
         return ret != null ? ret : Collections.emptyList();
     }
@@ -721,6 +835,39 @@ public class HueBridgeHandler extends ConfigStatusBridgeHandler implements HueCl
     }
 
     /**
+     * Iterate through lightStatusListeners and notify them about a changed or added light state.
+     *
+     * @param fullGroup
+     * @param type Can be "changed" if just a state has changed or "added" if this is a new light on the bridge.
+     */
+    private void notifyGroupStatusListeners(final FullGroup fullGroup, final String type) {
+        if (groupStatusListeners.isEmpty()) {
+            logger.debug("No light group status listeners to notify of light group change for light group '{}'", fullGroup.getId());
+            return;
+        }
+
+        for (GroupStatusListener groupStatusListener : groupStatusListeners) {
+            try {
+                switch (type) {
+                    case STATE_ADDED:
+                        logger.debug("Sending groupAdded for light group '{}'", fullGroup.getId());
+                        groupStatusListener.onGroupAdded(hueBridge, fullGroup);
+                        break;
+                    case STATE_CHANGED:
+                        logger.debug("Sending groupStateChanged for light group '{}'", fullGroup.getId());
+                        groupStatusListener.onGroupStateChanged(hueBridge, fullGroup);
+                        break;
+                    default:
+                        throw new IllegalArgumentException(
+                                "Could not notify groupStatusListeners for unknown event type " + type);
+                }
+            } catch (Exception e) {
+                logger.error("An exception occurred while calling the GroupStatusListener", e);
+            }
+        }
+    }
+
+    /**
      * Compare to states for equality.
      *
      * @param state1 Reference state
@@ -728,7 +875,8 @@ public class HueBridgeHandler extends ConfigStatusBridgeHandler implements HueCl
      * @return {@code true} if the available information of both states are equal.
      */
     private boolean isEqual(State state1, State state2) {
-        return state1.getAlertMode().equals(state2.getAlertMode()) && state1.isOn() == state2.isOn()
+        return state1 == null || state2 == null ? false :
+                Objects.equals(state1.getAlertMode(), state2.getAlertMode()) && state1.isOn() == state2.isOn()
                 && state1.getBrightness() == state2.getBrightness()
                 && state1.getColorTemperature() == state2.getColorTemperature() && state1.getHue() == state2.getHue()
                 && state1.getSaturation() == state2.getSaturation() && state1.isReachable() == state2.isReachable()

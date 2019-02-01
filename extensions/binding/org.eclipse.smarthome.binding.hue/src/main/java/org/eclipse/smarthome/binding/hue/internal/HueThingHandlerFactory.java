@@ -27,6 +27,7 @@ import org.eclipse.jdt.annotation.Nullable;
 import org.eclipse.smarthome.binding.hue.internal.discovery.HueLightDiscoveryService;
 import org.eclipse.smarthome.binding.hue.internal.handler.HueBridgeHandler;
 import org.eclipse.smarthome.binding.hue.internal.handler.HueLightHandler;
+import org.eclipse.smarthome.binding.hue.internal.handler.HueGroupHandler;
 import org.eclipse.smarthome.binding.hue.internal.handler.sensors.DimmerSwitchHandler;
 import org.eclipse.smarthome.binding.hue.internal.handler.sensors.LightLevelHandler;
 import org.eclipse.smarthome.binding.hue.internal.handler.sensors.PresenceHandler;
@@ -57,10 +58,11 @@ import org.osgi.service.component.annotations.Component;
 @Component(service = ThingHandlerFactory.class, configurationPid = "binding.hue")
 public class HueThingHandlerFactory extends BaseThingHandlerFactory {
     public static final Set<ThingTypeUID> SUPPORTED_THING_TYPES = Collections.unmodifiableSet(
-            Stream.of(HueBridgeHandler.SUPPORTED_THING_TYPES.stream(), HueLightHandler.SUPPORTED_THING_TYPES.stream(),
-                    DimmerSwitchHandler.SUPPORTED_THING_TYPES.stream(), TapSwitchHandler.SUPPORTED_THING_TYPES.stream(),
-                    PresenceHandler.SUPPORTED_THING_TYPES.stream(), TemperatureHandler.SUPPORTED_THING_TYPES.stream(),
-                    LightLevelHandler.SUPPORTED_THING_TYPES.stream()).flatMap(i -> i).collect(Collectors.toSet()));
+            Stream.of(HueBridgeHandler.SUPPORTED_THING_TYPES.stream(), HueLightHandler.SUPPORTED_THING_TYPES.stream(), 
+                    HueGroupHandler.SUPPORTED_THING_TYPES.stream(), DimmerSwitchHandler.SUPPORTED_THING_TYPES.stream(), 
+                    TapSwitchHandler.SUPPORTED_THING_TYPES.stream(), PresenceHandler.SUPPORTED_THING_TYPES.stream(), 
+		    TemperatureHandler.SUPPORTED_THING_TYPES.stream(), LightLevelHandler.SUPPORTED_THING_TYPES.stream())
+            .flatMap(i -> i).collect(Collectors.toSet()));
 
     private final Map<ThingUID, @Nullable ServiceRegistration<?>> discoveryServiceRegs = new HashMap<>();
 
@@ -72,6 +74,9 @@ public class HueThingHandlerFactory extends BaseThingHandlerFactory {
         } else if (HueLightHandler.SUPPORTED_THING_TYPES.contains(thingTypeUID)) {
             ThingUID hueLightUID = getLightUID(thingTypeUID, thingUID, configuration, bridgeUID);
             return super.createThing(thingTypeUID, configuration, hueLightUID, bridgeUID);
+        } else if (HueGroupHandler.SUPPORTED_THING_TYPES.contains(thingTypeUID)) {
+            ThingUID hueGroupUID = getGroupUID(thingTypeUID, thingUID, configuration, bridgeUID);
+            return super.createThing(thingTypeUID, configuration, hueGroupUID, bridgeUID);
         } else if (DimmerSwitchHandler.SUPPORTED_THING_TYPES.contains(thingTypeUID)
                 || TapSwitchHandler.SUPPORTED_THING_TYPES.contains(thingTypeUID)
                 || PresenceHandler.SUPPORTED_THING_TYPES.contains(thingTypeUID)
@@ -95,6 +100,15 @@ public class HueThingHandlerFactory extends BaseThingHandlerFactory {
             return thingUID;
         } else {
             return getThingUID(thingTypeUID, configuration.get(LIGHT_ID).toString(), bridgeUID);
+        }
+    }
+
+    private ThingUID getGroupUID(ThingTypeUID thingTypeUID, @Nullable ThingUID thingUID, Configuration configuration,
+            @Nullable ThingUID bridgeUID) {
+        if (thingUID != null) {
+            return thingUID;
+        } else {
+            return getThingUID(thingTypeUID, configuration.get(GROUP_ID).toString(), bridgeUID);
         }
     }
 
@@ -123,6 +137,8 @@ public class HueThingHandlerFactory extends BaseThingHandlerFactory {
             return handler;
         } else if (HueLightHandler.SUPPORTED_THING_TYPES.contains(thing.getThingTypeUID())) {
             return new HueLightHandler(thing);
+        } else if (HueGroupHandler.SUPPORTED_THING_TYPES.contains(thing.getThingTypeUID())) {
+            return new HueGroupHandler(thing);
         } else if (DimmerSwitchHandler.SUPPORTED_THING_TYPES.contains(thing.getThingTypeUID())) {
             return new DimmerSwitchHandler(thing);
         } else if (TapSwitchHandler.SUPPORTED_THING_TYPES.contains(thing.getThingTypeUID())) {

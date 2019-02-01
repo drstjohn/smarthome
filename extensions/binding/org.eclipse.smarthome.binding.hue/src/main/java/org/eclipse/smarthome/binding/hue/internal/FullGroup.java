@@ -13,6 +13,10 @@
 package org.eclipse.smarthome.binding.hue.internal;
 
 import java.util.List;
+import java.util.Map;
+import java.lang.reflect.Type;
+import com.google.gson.reflect.TypeToken;
+
 
 /**
  * Detailed group information.
@@ -21,10 +25,21 @@ import java.util.List;
  * @author Denis Dudnik - moved Jue library source code inside the smarthome Hue binding
  */
 public class FullGroup extends Group {
+    public static final String CONFIG_TRANSITIONTIME = "transitiontime";
+
+
+    public static final Type GSON_TYPE = new TypeToken<Map<String, FullGroup>>() {
+    }.getType();
     private State action;
     private List<String> lights;
+    private Integer transitiontime;
 
     FullGroup() {
+        //this.transitiontime = 400;
+    }
+
+    FullGroup(State initialAction) {
+        action = initialAction;
     }
 
     /**
@@ -44,5 +59,23 @@ public class FullGroup extends Group {
      */
     public List<HueObject> getLights() {
         return Util.idsToLights(lights);
+    }
+
+    /**
+     * Returns the state transitin time of the light group.
+     *
+     * @return state transition time
+     */
+
+    public Integer getTransitionTime() {
+        return transitiontime;
+    }
+
+    /**
+     * Sets the state transition time of the light group.
+     */
+    public void setTransitionTime(Integer transitiontime) {
+        this.transitiontime = transitiontime;
+
     }
 }
